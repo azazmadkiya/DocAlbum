@@ -1,4 +1,4 @@
-name: Build and Release Debug APK
+name: Build and Release Debug APK and AAB
 
 on:
   push:
@@ -68,24 +68,34 @@ jobs:
           fi
           echo "Temporary debug keystore verified at $KEYSTORE_PATH"
 
-      - name: Build debug APK
+      - name: Build debug APK and AAB
         run: |
-          gradle :app:assembleDebug --stacktrace --no-daemon
+          gradle :app:assembleDebug :app:bundleDebug --stacktrace --no-daemon
 
-      - name: Verify APK
+      - name: Verify APK and AAB
         run: |
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          AAB_PATH="app/build/outputs/bundle/debug/app-debug.aab"
+          
           if [ ! -f "$APK_PATH" ]; then
             echo "Error: Expected APK not found at $APK_PATH"
-            echo "Searching inside app/build/outputs/apk:"
-            find app/build/outputs/apk -type f -name "*.apk" || true
             exit 1
           fi
           if [ ! -s "$APK_PATH" ]; then
             echo "Error: APK file is empty."
             exit 1
           fi
-          echo "APK verification passed: $APK_PATH"
+          
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "Error: Expected AAB not found at $AAB_PATH"
+            exit 1
+          fi
+          if [ ! -s "$AAB_PATH" ]; then
+            echo "Error: AAB file is empty."
+            exit 1
+          fi
+          
+          echo "APK and AAB verification passed successfully."
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -94,29 +104,43 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Prepare APK release asset
-        id: prepare_asset
+      - name: Upload debug AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-aab
+          path: app/build/outputs/bundle/debug/app-debug.aab
+          if-no-files-found: error
+
+      - name: Prepare release assets
+        id: prepare_assets
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           SANITIZED_REPO=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
           RUN_NUMBER="${{ github.run_number }}"
           
           ASSET_DIR=$(mktemp -d)
-          ASSET_NAME="${SANITIZED_REPO}-debug-build-${RUN_NUMBER}.apk"
-          ASSET_PATH="$ASSET_DIR/$ASSET_NAME"
           
-          cp app/build/outputs/apk/debug/app-debug.apk "$ASSET_PATH"
+          APK_NAME="${SANITIZED_REPO}-debug-build-${RUN_NUMBER}.apk"
+          AAB_NAME="${SANITIZED_REPO}-debug-build-${RUN_NUMBER}.aab"
           
-          if [ ! -f "$ASSET_PATH" ] || [ ! -s "$ASSET_PATH" ]; then
-            echo "Error: Failed to prepare release asset."
+          APK_DEST="$ASSET_DIR/$APK_NAME"
+          AAB_DEST="$ASSET_DIR/$AAB_NAME"
+          
+          cp app/build/outputs/apk/debug/app-debug.apk "$APK_DEST"
+          cp app/build/outputs/bundle/debug/app-debug.aab "$AAB_DEST"
+          
+          if [ ! -f "$APK_DEST" ] || [ ! -s "$APK_DEST" ] || [ ! -f "$AAB_DEST" ] || [ ! -s "$AAB_DEST" ]; then
+            echo "Error: Failed to prepare release assets."
             exit 1
           fi
           
-          echo "Prepared release asset at $ASSET_PATH"
-          echo "asset_path=$ASSET_PATH" >> $GITHUB_OUTPUT
-          echo "asset_name=$ASSET_NAME" >> $GITHUB_OUTPUT
+          echo "Prepared release assets in $ASSET_DIR"
+          echo "apk_path=$APK_DEST" >> $GITHUB_OUTPUT
+          echo "aab_path=$AAB_DEST" >> $GITHUB_OUTPUT
+          echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
+          echo "aab_name=$AAB_NAME" >> $GITHUB_OUTPUT
 
-      - name: Publish APK to GitHub Releases
+      - name: Publish APK and AAB to GitHub Releases
         id: publish_release
         continue-on-error: true
         env:
@@ -124,25 +148,22 @@ jobs:
         run: |
           gh --version
           
-          ASSET_PATH="${{ steps.prepare_asset.outputs.asset_path }}"
-          if [ ! -f "$ASSET_PATH" ] || [ ! -s "$ASSET_PATH" ]; then
-            echo "Error: Prepared release asset is missing or empty."
-            exit 1
-          fi
+          APK_PATH="${{ steps.prepare_assets.outputs.apk_path }}"
+          AAB_PATH="${{ steps.prepare_assets.outputs.aab_path }}"
           
           RUN_NUMBER="${{ github.run_number }}"
           RUN_ATTEMPT="${{ github.run_attempt }}"
-          TAG="debug-apk-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
-          TITLE="Debug APK Build #${RUN_NUMBER}"
+          TAG="debug-apk-aab-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
+          TITLE="Debug APK & AAB Build #${RUN_NUMBER}"
           
-          NOTES="This is an automatically generated debug APK.
+          NOTES="This is an automatically generated debug APK and AAB build.
           - Built by GitHub Actions
           - Run Number: ${RUN_NUMBER}
           - Run Attempt: ${RUN_ATTEMPT}
           - Source Commit SHA: ${{ github.sha }}
           - Intended for testing only
           - Not a Play Store production release
-          - Signed only with a temporary debug keystore"
+          - Signed with temporary debug keystore"
           
           echo "Creating release with tag $TAG..."
           gh release create "$TAG" \
@@ -150,17 +171,19 @@ jobs:
             --notes "$NOTES" \
             --target "${{ github.sha }}" \
             --latest \
-            "$ASSET_PATH"
+            "$APK_PATH" \
+            "$AAB_PATH"
 
-      - name: Report APK download result
+      - name: Report download results
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           RELEASE_OUTCOME="${{ steps.publish_release.outcome }}"
           RUN_NUMBER="${{ github.run_number }}"
           RUN_ATTEMPT="${{ github.run_attempt }}"
-          TAG="debug-apk-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
-          ASSET_NAME="${{ steps.prepare_asset.outputs.asset_name }}"
+          TAG="debug-apk-aab-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
+          APK_NAME="${{ steps.prepare_assets.outputs.apk_name }}"
+          AAB_NAME="${{ steps.prepare_assets.outputs.aab_name }}"
           
           if [ "$RELEASE_OUTCOME" = "success" ]; then
             echo "Release publishing succeeded!"
@@ -168,24 +191,20 @@ jobs:
             REPO_URL="https://github.com/${{ github.repository }}"
             RELEASE_URL="$REPO_URL/releases/tag/$TAG"
             
-            echo "Release Tag: $TAG"
-            echo "Release Title: Debug APK Build #${RUN_NUMBER}"
-            echo "Direct Release Page URL: $RELEASE_URL"
-            echo "Exact APK Asset Filename: $ASSET_NAME"
-            
             {
-              echo "### 🎉 Debug APK Release Successful!"
+              echo "### 🎉 Debug APK & AAB Release Successful!"
               echo "- **Release Tag**: \`$TAG\`"
               echo "- **Direct Release Page**: [$RELEASE_URL]($RELEASE_URL)"
-              echo "- **Download APK**: $ASSET_NAME (available under release **Assets**)"
-              echo "- **Backup**: Normal Actions artifact \`app-debug-apk\` is also available."
+              echo "- **Download APK**: $APK_NAME (available under release **Assets**)"
+              echo "- **Download AAB**: $AAB_NAME (available under release **Assets**)"
+              echo "- **Backups**: Normal Actions artifacts \`app-debug-apk\` and \`app-debug-aab\` are also available."
             } >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ Warning: GitHub Release publishing failed or was skipped, but the APK build and Actions artifact upload succeeded."
+            echo "⚠️ Warning: GitHub Release publishing failed or was skipped, but APK/AAB builds and Actions artifact uploads succeeded."
             {
-              echo "### ⚠️ Debug APK Build Succeeded (Release Publishing Failed)"
-              echo "- The APK build and Actions artifact upload (\`app-debug-apk\`) completed successfully."
+              echo "### ⚠️ Debug APK & AAB Build Succeeded (Release Publishing Failed)"
+              echo "- The APK & AAB builds and Actions artifact uploads (`app-debug-apk`, `app-debug-aab`) completed successfully."
               echo "- Release publishing encountered an error and could not complete automatically."
-              echo "- You can download the APK from the Actions artifacts section."
+              echo "- You can download both files from the Actions artifacts section."
             } >> $GITHUB_STEP_SUMMARY
           fi
