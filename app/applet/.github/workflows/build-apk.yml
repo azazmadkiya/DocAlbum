@@ -1,4 +1,4 @@
-name: Build and Release Debug APK and AAB
+name: Build and Release APK and AAB (Debug & Release)
 
 on:
   push:
@@ -40,62 +40,69 @@ jobs:
           fi
           echo "Java version verification passed: >= 17"
 
+      - name: Create temporary keystores before Gradle configuration
+        run: |
+          echo "Generating temporary debug keystore..."
+          keytool -genkeypair \
+            -alias androiddebugkey \
+            -keypass android \
+            -keystore "./debug.keystore" \
+            -storepass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+
+          echo "Generating temporary release keystore..."
+          keytool -genkeypair \
+            -alias upload \
+            -keypass android \
+            -keystore "./my-upload-key.jks" \
+            -storepass android \
+            -dname "CN=Android Release,O=Android,C=US" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+
+          if [ ! -f "./debug.keystore" ] || [ ! -f "./my-upload-key.jks" ]; then
+            echo "Error: Failed to create temporary keystores."
+            exit 1
+          fi
+          echo "Keystores successfully created and verified."
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '9.3.1'
 
-      - name: Create temporary debug keystore
+      - name: Build APK and App Bundles (Debug & Release)
+        env:
+          KEYSTORE_PATH: "./my-upload-key.jks"
+          STORE_PASSWORD: "android"
+          KEY_PASSWORD: "android"
         run: |
-          KEYSTORE_PATH="./debug.keystore"
-          if [ -f "$KEYSTORE_PATH" ]; then
-            echo "Debug keystore already exists."
-          else
-            echo "Generating temporary debug keystore..."
-            keytool -genkeypair \
-              -alias androiddebugkey \
-              -keypass android \
-              -keystore "$KEYSTORE_PATH" \
-              -storepass android \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000
-          fi
-          if [ ! -f "$KEYSTORE_PATH" ]; then
-            echo "Error: Failed to create debug keystore."
-            exit 1
-          fi
-          echo "Temporary debug keystore verified at $KEYSTORE_PATH"
+          gradle :app:assembleDebug :app:bundleDebug :app:bundleRelease --stacktrace --no-daemon
 
-      - name: Build debug APK and AAB
-        run: |
-          gradle :app:assembleDebug :app:bundleDebug --stacktrace --no-daemon
-
-      - name: Verify APK and AAB
+      - name: Verify APK and AAB outputs
         run: |
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          AAB_PATH="app/build/outputs/bundle/debug/app-debug.aab"
+          DEBUG_AAB_PATH="app/build/outputs/bundle/debug/app-debug.aab"
+          RELEASE_AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
           
-          if [ ! -f "$APK_PATH" ]; then
-            echo "Error: Expected APK not found at $APK_PATH"
+          if [ ! -f "$APK_PATH" ] || [ ! -s "$APK_PATH" ]; then
+            echo "Error: Expected APK not found or empty at $APK_PATH"
             exit 1
           fi
-          if [ ! -s "$APK_PATH" ]; then
-            echo "Error: APK file is empty."
+          if [ ! -f "$DEBUG_AAB_PATH" ] || [ ! -s "$DEBUG_AAB_PATH" ]; then
+            echo "Error: Expected Debug AAB not found or empty at $DEBUG_AAB_PATH"
             exit 1
           fi
-          
-          if [ ! -f "$AAB_PATH" ]; then
-            echo "Error: Expected AAB not found at $AAB_PATH"
-            exit 1
-          fi
-          if [ ! -s "$AAB_PATH" ]; then
-            echo "Error: AAB file is empty."
+          if [ ! -f "$RELEASE_AAB_PATH" ] || [ ! -s "$RELEASE_AAB_PATH" ]; then
+            echo "Error: Expected Release AAB not found or empty at $RELEASE_AAB_PATH"
             exit 1
           fi
           
-          echo "APK and AAB verification passed successfully."
+          echo "All APK and AAB outputs verified successfully."
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
@@ -111,6 +118,13 @@ jobs:
           path: app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
 
+      - name: Upload release AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
       - name: Prepare release assets
         id: prepare_assets
         run: |
@@ -121,26 +135,31 @@ jobs:
           ASSET_DIR=$(mktemp -d)
           
           APK_NAME="${SANITIZED_REPO}-debug-build-${RUN_NUMBER}.apk"
-          AAB_NAME="${SANITIZED_REPO}-debug-build-${RUN_NUMBER}.aab"
+          DEBUG_AAB_NAME="${SANITIZED_REPO}-debug-bundle-${RUN_NUMBER}.aab"
+          RELEASE_AAB_NAME="${SANITIZED_REPO}-release-bundle-${RUN_NUMBER}.aab"
           
           APK_DEST="$ASSET_DIR/$APK_NAME"
-          AAB_DEST="$ASSET_DIR/$AAB_NAME"
+          DEBUG_AAB_DEST="$ASSET_DIR/$DEBUG_AAB_NAME"
+          RELEASE_AAB_DEST="$ASSET_DIR/$RELEASE_AAB_NAME"
           
           cp app/build/outputs/apk/debug/app-debug.apk "$APK_DEST"
-          cp app/build/outputs/bundle/debug/app-debug.aab "$AAB_DEST"
+          cp app/build/outputs/bundle/debug/app-debug.aab "$DEBUG_AAB_DEST"
+          cp app/build/outputs/bundle/release/app-release.aab "$RELEASE_AAB_DEST"
           
-          if [ ! -f "$APK_DEST" ] || [ ! -s "$APK_DEST" ] || [ ! -f "$AAB_DEST" ] || [ ! -s "$AAB_DEST" ]; then
+          if [ ! -f "$APK_DEST" ] || [ ! -f "$DEBUG_AAB_DEST" ] || [ ! -f "$RELEASE_AAB_DEST" ]; then
             echo "Error: Failed to prepare release assets."
             exit 1
           fi
           
           echo "Prepared release assets in $ASSET_DIR"
           echo "apk_path=$APK_DEST" >> $GITHUB_OUTPUT
-          echo "aab_path=$AAB_DEST" >> $GITHUB_OUTPUT
+          echo "debug_aab_path=$DEBUG_AAB_DEST" >> $GITHUB_OUTPUT
+          echo "release_aab_path=$RELEASE_AAB_DEST" >> $GITHUB_OUTPUT
           echo "apk_name=$APK_NAME" >> $GITHUB_OUTPUT
-          echo "aab_name=$AAB_NAME" >> $GITHUB_OUTPUT
+          echo "debug_aab_name=$DEBUG_AAB_NAME" >> $GITHUB_OUTPUT
+          echo "release_aab_name=$RELEASE_AAB_NAME" >> $GITHUB_OUTPUT
 
-      - name: Publish APK and AAB to GitHub Releases
+      - name: Publish APK and AABs to GitHub Releases
         id: publish_release
         continue-on-error: true
         env:
@@ -149,21 +168,21 @@ jobs:
           gh --version
           
           APK_PATH="${{ steps.prepare_assets.outputs.apk_path }}"
-          AAB_PATH="${{ steps.prepare_assets.outputs.aab_path }}"
+          DEBUG_AAB_PATH="${{ steps.prepare_assets.outputs.debug_aab_path }}"
+          RELEASE_AAB_PATH="${{ steps.prepare_assets.outputs.release_aab_path }}"
           
           RUN_NUMBER="${{ github.run_number }}"
           RUN_ATTEMPT="${{ github.run_attempt }}"
-          TAG="debug-apk-aab-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
-          TITLE="Debug APK & AAB Build #${RUN_NUMBER}"
+          TAG="apk-aab-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
+          TITLE="APK & App Bundle Build #${RUN_NUMBER}"
           
-          NOTES="This is an automatically generated debug APK and AAB build.
+          NOTES="This is an automatically generated APK and Android App Bundle (AAB) build.
           - Built by GitHub Actions
           - Run Number: ${RUN_NUMBER}
           - Run Attempt: ${RUN_ATTEMPT}
           - Source Commit SHA: ${{ github.sha }}
-          - Intended for testing only
-          - Not a Play Store production release
-          - Signed with temporary debug keystore"
+          - Includes Debug APK, Debug AAB, and Release AAB (built via gradle :app:bundleRelease)
+          - Intended for testing and distribution"
           
           echo "Creating release with tag $TAG..."
           gh release create "$TAG" \
@@ -172,7 +191,8 @@ jobs:
             --target "${{ github.sha }}" \
             --latest \
             "$APK_PATH" \
-            "$AAB_PATH"
+            "$DEBUG_AAB_PATH" \
+            "$RELEASE_AAB_PATH"
 
       - name: Report download results
         env:
@@ -180,10 +200,10 @@ jobs:
         run: |
           RELEASE_OUTCOME="${{ steps.publish_release.outcome }}"
           RUN_NUMBER="${{ github.run_number }}"
-          RUN_ATTEMPT="${{ github.run_attempt }}"
-          TAG="debug-apk-aab-build-${RUN_NUMBER}-${RUN_ATTEMPT}"
+          TAG="apk-aab-build-${RUN_NUMBER}-${{ github.run_attempt }}"
           APK_NAME="${{ steps.prepare_assets.outputs.apk_name }}"
-          AAB_NAME="${{ steps.prepare_assets.outputs.aab_name }}"
+          DEBUG_AAB_NAME="${{ steps.prepare_assets.outputs.debug_aab_name }}"
+          RELEASE_AAB_NAME="${{ steps.prepare_assets.outputs.release_aab_name }}"
           
           if [ "$RELEASE_OUTCOME" = "success" ]; then
             echo "Release publishing succeeded!"
@@ -192,19 +212,20 @@ jobs:
             RELEASE_URL="$REPO_URL/releases/tag/$TAG"
             
             {
-              echo "### 🎉 Debug APK & AAB Release Successful!"
+              echo "### 🎉 APK & App Bundle Release Successful!"
               echo "- **Release Tag**: \`$TAG\`"
               echo "- **Direct Release Page**: [$RELEASE_URL]($RELEASE_URL)"
-              echo "- **Download APK**: $APK_NAME (available under release **Assets**)"
-              echo "- **Download AAB**: $AAB_NAME (available under release **Assets**)"
-              echo "- **Backups**: Normal Actions artifacts \`app-debug-apk\` and \`app-debug-aab\` are also available."
+              echo "- **Download APK**: $APK_NAME"
+              echo "- **Download Debug AAB**: $DEBUG_AAB_NAME"
+              echo "- **Download Release AAB**: $RELEASE_AAB_NAME (built via \`gradle :app:bundleRelease\`)"
+              echo "- **Backups**: Normal Actions artifacts \`app-debug-apk\`, \`app-debug-aab\`, and \`app-release-aab\` are also available."
             } >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ Warning: GitHub Release publishing failed or was skipped, but APK/AAB builds and Actions artifact uploads succeeded."
+            echo "⚠️ Warning: GitHub Release publishing failed or was skipped, but the APK/AAB builds and Actions artifact uploads succeeded."
             {
-              echo "### ⚠️ Debug APK & AAB Build Succeeded (Release Publishing Failed)"
-              echo "- The APK & AAB builds and Actions artifact uploads (`app-debug-apk`, `app-debug-aab`) completed successfully."
+              echo "### ⚠️ Build Succeeded (Release Publishing Failed)"
+              echo "- The APK and AAB builds and Actions artifact uploads completed successfully."
               echo "- Release publishing encountered an error and could not complete automatically."
-              echo "- You can download both files from the Actions artifacts section."
+              echo "- You can download the APK and AABs from the Actions artifacts section."
             } >> $GITHUB_STEP_SUMMARY
           fi
