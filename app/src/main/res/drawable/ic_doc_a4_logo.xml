@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- Outer Circular Glow Card -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M60,60m-52,0a52,52 0 1,0 104,0 a52,52 0 1,0 -104,0" />
+
+    <!-- Ring border -->
+    <path
+        android:pathData="M60,60m-50,0a50,50 0 1,0 100,0 a50,50 0 1,0 -100,0"
+        android:strokeWidth="2.5"
+        android:strokeColor="#3B82F6" />
+
+    <!-- A4 Paper Base -->
+    <path
+        android:fillColor="#F8FAFC"
+        android:pathData="M40,24 h40 c2.5,0 4.5,2 4.5,4.5 v63 c0,2.5 -2,4.5 -4.5,4.5 h-40 c-2.5,0 -4.5,-2 -4.5,-4.5 v-63 c0,-2.5 2,-4.5 4.5,-4.5 z" />
+
+    <!-- A4 Header text line -->
+    <path
+        android:fillColor="#CBD5E1"
+        android:pathData="M46,30 h18 v2.5 h-18 z" />
+
+    <!-- Front Side Card (Indigo/Blue) -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M44,36 h32 c2,0 3,1.2 3,3 v16 c0,1.8 -1,3 -3,3 h-32 c-2,0 -3,-1.2 -3,-3 v-16 c0,-1.8 1,-3 3,-3 z" />
+
+    <!-- Front Card Avatar & Lines -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,41 h7 c0.8,0 1.2,0.5 1.2,1.2 v7 c0,0.8 -0.5,1.2 -1.2,1.2 h-7 c-0.8,0 -1.2,-0.5 -1.2,-1.2 v-7 c0,-0.8 0.5,-1.2 1.2,-1.2 z" />
+    <path
+        android:fillColor="#93C5FD"
+        android:pathData="M51.5,45 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 M49,49 a2.5,2.5 0 0,1 5,0 z" />
+    <path
+        android:fillColor="#BFDBFE"
+        android:pathData="M59,42 h14 v2 h-14 z M59,46 h10 v2 h-10 z M59,50 h7 v1.5 h-7 z" />
+
+    <!-- Back Side Card (Teal/Emerald) -->
+    <path
+        android:fillColor="#0D9488"
+        android:pathData="M44,61 h32 c2,0 3,1.2 3,3 v16 c0,1.8 -1,3 -3,3 h-32 c-2,0 -3,-1.2 -3,-3 v-16 c0,-1.8 1,-3 3,-3 z" />
+
+    <!-- Magnetic Strip -->
+    <path
+        android:fillColor="#115E59"
+        android:pathData="M41,65 h38 v4 h-38 z" />
+    <!-- Barcode lines -->
+    <path
+        android:fillColor="#CCFBF1"
+        android:pathData="M47,72 h5 v3.5 h-5 z M55,72 h18 v2 h-18 z M55,75 h12 v1.5 h-12 z" />
+
+    <!-- Printer / Badge accent -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M78,74 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M74,69 h8 v3 h-8 z M73,73 h10 c0.8,0 1.2,0.5 1.2,1.2 v4 c0,0.8 -0.5,1.2 -1.2,1.2 h-10 c-0.8,0 -1.2,-0.5 -1.2,-1.2 v-4 c0,-0.8 0.5,-1.2 1.2,-1.2 z M75,77 h6 v3 h-6 z" />
+
+</vector>

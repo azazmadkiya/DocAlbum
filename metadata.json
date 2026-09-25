@@ -1,0 +1,6 @@
+{
+  "name": "Doc A4 Print",
+  "description": "Automatically crop document front and back sides and adjust them on an A4 page for printing and downloading.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
