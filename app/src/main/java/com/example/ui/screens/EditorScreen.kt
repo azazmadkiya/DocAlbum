@@ -35,8 +35,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.example.ui.components.ImageEditorDialog
+import com.example.ui.components.PasswordInputDialog
 import com.example.ui.viewmodel.DocViewModel
 import com.example.utils.A4DocumentGenerator
+import com.example.utils.PDFEncryptionManager
 import com.example.utils.CardPrintSize
 import java.io.File
 
@@ -56,6 +58,18 @@ fun EditorScreen(
     val cardPrintSize by viewModel.cardPrintSize.collectAsState()
     val showCutGuides by viewModel.showCutGuides.collectAsState()
     val showLabels by viewModel.showLabels.collectAsState()
+    val encryptionManager = remember { PDFEncryptionManager(context) }
+    var isPasswordProtected by remember { mutableStateOf(false) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var pendingExportAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val handleExportWithCheck: (() -> Unit) -> Unit = { exportAction ->
+        if (isPasswordProtected && encryptionManager.currentConfig == null) {
+            pendingExportAction = exportAction
+            showPasswordDialog = true
+        } else {
+            exportAction()
+        }
+    }
 
     var showInternalPreview by remember { mutableStateOf(false) }
 
@@ -166,6 +180,27 @@ fun EditorScreen(
                 Toast.makeText(context, "Failed to parse PDF document", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    if (showPasswordDialog) {
+        PasswordInputDialog(
+            title = "Protect Exported PDF",
+            description = "Set owner and user passwords to secure your exported A4 document.",
+            confirmButtonText = "Set Password & Export",
+            requireConfirmation = true,
+            onDismiss = {
+                showPasswordDialog = false
+                pendingExportAction = null
+            },
+            onSubmit = { password ->
+                val success = encryptionManager.setPasswords(password)
+                if (success) {
+                    showPasswordDialog = false
+                    pendingExportAction?.invoke()
+                    pendingExportAction = null
+                }
+            }
+        )
     }
 
     if (pendingImageUri != null && editingSide != null) {
@@ -338,37 +373,51 @@ fun EditorScreen(
                         onShowCutGuidesChange = { viewModel.setShowCutGuides(it) },
                         onShowLabelsChange = { viewModel.setShowLabels(it) },
                         onPrint = handleOpenPreview,
+                        isPasswordProtected = isPasswordProtected,
+                        onTogglePasswordProtection = { enabled ->
+                            isPasswordProtected = enabled
+                            if (enabled && encryptionManager.currentConfig == null) {
+                                pendingExportAction = {}
+                                showPasswordDialog = true
+                            } else if (!enabled) {
+                                encryptionManager.clearProtection()
+                            }
+                        },
                         onSaveToStorage = {
-                            val a4Bmp = A4DocumentGenerator.generateA4Bitmap(
-                                context = context,
-                                title = title,
-                                frontUri = frontUri,
-                                backUri = backUri,
-                                layoutStyle = layoutStyle,
-                                cardPrintSize = cardPrintSize,
-                                filterType = filterType,
-                                showCutGuides = showCutGuides,
-                                showLabels = showLabels
-                            )
-                            viewModel.saveDocument {
-                                A4DocumentGenerator.saveA4BitmapToStorage(context, a4Bmp, title)
+                            handleExportWithCheck {
+                                val a4Bmp = A4DocumentGenerator.generateA4Bitmap(
+                                    context = context,
+                                    title = title,
+                                    frontUri = frontUri,
+                                    backUri = backUri,
+                                    layoutStyle = layoutStyle,
+                                    cardPrintSize = cardPrintSize,
+                                    filterType = filterType,
+                                    showCutGuides = showCutGuides,
+                                    showLabels = showLabels
+                                )
+                                viewModel.saveDocument {
+                                    A4DocumentGenerator.saveA4BitmapToStorage(context, a4Bmp, title)
+                                }
                             }
                         },
                         onShare = {
-                            val a4Bmp = A4DocumentGenerator.generateA4Bitmap(
-                                context = context,
-                                title = title,
-                                frontUri = frontUri,
-                                backUri = backUri,
-                                layoutStyle = layoutStyle,
-                                cardPrintSize = cardPrintSize,
-                                filterType = filterType,
-                                showCutGuides = showCutGuides,
-                                showLabels = showLabels
-                            )
-                            val uri = A4DocumentGenerator.saveA4BitmapToStorage(context, a4Bmp, title)
-                            if (uri != null) {
-                                A4DocumentGenerator.shareA4Image(context, uri, title)
+                            handleExportWithCheck {
+                                val a4Bmp = A4DocumentGenerator.generateA4Bitmap(
+                                    context = context,
+                                    title = title,
+                                    frontUri = frontUri,
+                                    backUri = backUri,
+                                    layoutStyle = layoutStyle,
+                                    cardPrintSize = cardPrintSize,
+                                    filterType = filterType,
+                                    showCutGuides = showCutGuides,
+                                    showLabels = showLabels
+                                )
+                                val uri = A4DocumentGenerator.saveA4BitmapToStorage(context, a4Bmp, title)
+                                if (uri != null) {
+                                    A4DocumentGenerator.shareA4Image(context, uri, title)
+                                }
                             }
                         }
                     )
@@ -596,6 +645,8 @@ fun A4StudioSection(
     cardPrintSize: CardPrintSize,
     showCutGuides: Boolean,
     showLabels: Boolean,
+    isPasswordProtected: Boolean,
+    onTogglePasswordProtection: (Boolean) -> Unit,
     onLayoutStyleChange: (String) -> Unit,
     onFilterTypeChange: (String) -> Unit,
     onCardPrintSizeChange: (CardPrintSize) -> Unit,
@@ -914,6 +965,52 @@ fun A4StudioSection(
             }
 
             Spacer(modifier = Modifier.height(18.dp))
+
+            // --- PASSWORD PROTECTION CARD ---
+            Spacer(modifier = Modifier.height(14.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = if (isPasswordProtected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Password Protection",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isPasswordProtected) "Secured with password encryption" else "Optional export encryption",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = isPasswordProtected,
+                        onCheckedChange = { onTogglePasswordProtection(it) }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
 
             // --- ACTION BUTTONS: Print, Save, Share ---
             Row(
