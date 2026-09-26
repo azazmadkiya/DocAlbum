@@ -1,6 +1,8 @@
 package com.example.ui.components
 
 import android.content.Context
+import android.widget.Toast
+import com.example.utils.CardEdgeDetector
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
@@ -202,6 +204,28 @@ fun ImageEditorDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 1-Click Computer Vision Auto Edge Crop
+                        FilledTonalButton(
+                            onClick = {
+                                val src = currentBitmap ?: originalBitmap
+                                if (src != null) {
+                                    val cropped = CardEdgeDetector.autoCropCard(src)
+                                    currentBitmap = cropped
+                                    rotationAngle = 0f
+                                    Toast.makeText(context, "Aadhaar card boundaries detected & cropped!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        ) {
+                            Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Auto-Detect Card", fontWeight = FontWeight.Bold)
+                        }
+
                         // Crop Tool Button
                         FilledTonalButton(
                             onClick = { isCroppingMode = true },

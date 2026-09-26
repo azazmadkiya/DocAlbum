@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import android.graphics.Bitmap
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,12 +23,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.utils.CardEdgeDetector
+import com.example.utils.CardQuad
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -56,6 +60,7 @@ fun CropImageView(
     onCropConfirmed: (Bitmap) -> Unit,
     onCancel: () -> Unit
 ) {
+    val context = LocalContext.current
     val presets = remember {
         listOf(
             AspectRatioPreset("Freeform", "Free", null),
@@ -66,7 +71,6 @@ fun CropImageView(
             AspectRatioPreset("A4 Page", "1:1.41", 1f / 1.4142f)
         )
     }
-
     var selectedPresetIndex by remember { mutableIntStateOf(1) } // Default to ID Card preset
 
     // Normalized coordinates [0f..1f] relative to displayed image
@@ -75,8 +79,10 @@ fun CropImageView(
     var normRight by remember { mutableFloatStateOf(0.92f) }
     var normBottom by remember { mutableFloatStateOf(0.88f) }
 
-    var activeHandle by remember { mutableStateOf(CropHandle.NONE) }
+    var detectedResult by remember { mutableStateOf<CardEdgeDetector.DetectionResult?>(null) }
+    var isAutoDetectedActive by remember { mutableStateOf(false) }
 
+    var activeHandle by remember { mutableStateOf(CropHandle.NONE) }
     val density = LocalDensity.current
     val cornerThresholdPx = with(density) { 44.dp.toPx() }
     val edgeThresholdPx = with(density) { 24.dp.toPx() }
@@ -85,7 +91,6 @@ fun CropImageView(
     val bmpH = bitmap.height.toFloat()
     val bmpAspect = bmpW / bmpH
 
-    // Helper to apply aspect ratio
     fun applyPresetRatio(ratio: Float?) {
         if (ratio == null) return
         val normTargetAspect = ratio / bmpAspect
@@ -101,11 +106,37 @@ fun CropImageView(
         normTop = ((1f - safeH) / 2f).coerceIn(0f, 1f - safeH)
         normRight = normLeft + safeW
         normBottom = normTop + safeH
+        isAutoDetectedActive = false
     }
 
-    // Apply default preset on first launch
-    LaunchedEffect(Unit) {
-        applyPresetRatio(presets[selectedPresetIndex].ratio)
+    fun triggerAutoDetect(showToast: Boolean = true) {
+        val result = CardEdgeDetector.detectCard(bitmap)
+        detectedResult = result
+        normLeft = result.normalizedRect.left
+        normTop = result.normalizedRect.top
+        normRight = result.normalizedRect.right
+        normBottom = result.normalizedRect.bottom
+        selectedPresetIndex = 0 // Custom / freeform to respect the exact detected bounds
+        isAutoDetectedActive = true
+        if (showToast) {
+            Toast.makeText(context, "Card edges auto-detected successfully!", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Automatically detect document edges on first launch
+    LaunchedEffect(bitmap) {
+        val result = CardEdgeDetector.detectCard(bitmap)
+        detectedResult = result
+        if (result.isCardDetected) {
+            normLeft = result.normalizedRect.left
+            normTop = result.normalizedRect.top
+            normRight = result.normalizedRect.right
+            normBottom = result.normalizedRect.bottom
+            selectedPresetIndex = 0
+            isAutoDetectedActive = true
+        } else {
+            applyPresetRatio(presets[selectedPresetIndex].ratio)
+        }
     }
 
     Column(
@@ -124,13 +155,13 @@ fun CropImageView(
         ) {
             Column {
                 Text(
-                    text = "Crop Document",
+                    text = "Smart Card Crop",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "Drag corners or select ID card aspect ratio",
+                    text = "Auto-detects edges or adjust handles manually",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -140,31 +171,75 @@ fun CropImageView(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Ratio Presets Chip Row
+        // Ratio Presets & Auto-Detect Row
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            // Prominent Auto-Detect Button
+            FilledTonalButton(
+                onClick = { triggerAutoDetect(showToast = true) },
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (isAutoDetectedActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = if (isAutoDetectedActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Auto-Detect Card", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
             presets.forEachIndexed { index, preset ->
                 FilterChip(
-                    selected = selectedPresetIndex == index,
+                    selected = selectedPresetIndex == index && !isAutoDetectedActive,
                     onClick = {
                         selectedPresetIndex = index
                         applyPresetRatio(preset.ratio)
                     },
                     label = { Text(preset.label, fontSize = 12.sp) },
-                    leadingIcon = if (selectedPresetIndex == index) {
+                    leadingIcon = if (selectedPresetIndex == index && !isAutoDetectedActive) {
                         { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
                     } else null
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        if (isAutoDetectedActive) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Aadhaar Card Boundaries Auto-Detected (${((detectedResult?.confidence ?: 0.9f) * 100).toInt()}% confidence)",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.height(4.dp))
+        }
 
         // Interactive Cropping Canvas
         BoxWithConstraints(
@@ -209,18 +284,15 @@ fun CropImageView(
                             onDragStart = { offset ->
                                 val x = offset.x
                                 val y = offset.y
-
                                 activeHandle = when {
                                     hypot(x - cropScreenLeft, y - cropScreenTop) <= cornerThresholdPx -> CropHandle.TOP_LEFT
                                     hypot(x - cropScreenRight, y - cropScreenTop) <= cornerThresholdPx -> CropHandle.TOP_RIGHT
                                     hypot(x - cropScreenLeft, y - cropScreenBottom) <= cornerThresholdPx -> CropHandle.BOTTOM_LEFT
                                     hypot(x - cropScreenRight, y - cropScreenBottom) <= cornerThresholdPx -> CropHandle.BOTTOM_RIGHT
-
                                     x in cropScreenLeft..cropScreenRight && abs(y - cropScreenTop) <= edgeThresholdPx -> CropHandle.EDGE_TOP
                                     x in cropScreenLeft..cropScreenRight && abs(y - cropScreenBottom) <= edgeThresholdPx -> CropHandle.EDGE_BOTTOM
                                     y in cropScreenTop..cropScreenBottom && abs(x - cropScreenLeft) <= edgeThresholdPx -> CropHandle.EDGE_LEFT
                                     y in cropScreenTop..cropScreenBottom && abs(x - cropScreenRight) <= edgeThresholdPx -> CropHandle.EDGE_RIGHT
-
                                     x in cropScreenLeft..cropScreenRight && y in cropScreenTop..cropScreenBottom -> CropHandle.BODY
                                     else -> CropHandle.NONE
                                 }
@@ -232,12 +304,13 @@ fun CropImageView(
                                 val dx = dragAmount.x / imgW
                                 val dy = dragAmount.y / imgH
                                 val minSize = 0.08f
+                                isAutoDetectedActive = false
 
                                 when (activeHandle) {
                                     CropHandle.TOP_LEFT -> {
                                         normLeft = (normLeft + dx).coerceIn(0f, normRight - minSize)
                                         normTop = (normTop + dy).coerceIn(0f, normBottom - minSize)
-                                        selectedPresetIndex = 0 // switch to freeform on manual handle drag
+                                        selectedPresetIndex = 0
                                     }
                                     CropHandle.TOP_RIGHT -> {
                                         normRight = (normRight + dx).coerceIn(normLeft + minSize, 1f)
@@ -295,6 +368,7 @@ fun CropImageView(
 
                 // 2. Dimmed surrounding masks
                 val dimColor = Color.Black.copy(alpha = 0.65f)
+
                 // Top
                 drawRect(
                     color = dimColor,
@@ -326,6 +400,7 @@ fun CropImageView(
                 // 3. Grid lines (rule of thirds)
                 val gridColor = Color.White.copy(alpha = 0.35f)
                 val gridStroke = 1.dp.toPx()
+
                 drawLine(
                     gridColor,
                     Offset(cropScreenLeft + cropW / 3f, cropScreenTop),
@@ -351,9 +426,10 @@ fun CropImageView(
                     strokeWidth = gridStroke
                 )
 
-                // 4. White boundary rectangle
+                // 4. Boundary rectangle
+                val boundaryColor = if (isAutoDetectedActive) Color(0xFF38BDF8) else Color.White
                 drawRect(
-                    color = Color.White,
+                    color = boundaryColor,
                     topLeft = Offset(cropScreenLeft, cropScreenTop),
                     size = Size(cropW, cropH),
                     style = Stroke(width = 2.dp.toPx())
@@ -374,7 +450,7 @@ fun CropImageView(
 
                 // Bottom-Left
                 drawLine(bracketColor, Offset(cropScreenLeft, cropScreenBottom), Offset(cropScreenLeft + bracketLen, cropScreenBottom), bracketThickness)
-                drawLine(bracketColor, Offset(cropScreenLeft, cropScreenBottom - bracketLen), Offset(cropScreenLeft, cropScreenBottom), bracketThickness)
+                drawLine(bracketColor, Offset(cropScreenLeft, cropScreenBottom), Offset(cropScreenLeft, cropScreenBottom - bracketLen), bracketThickness)
 
                 // Bottom-Right
                 drawLine(bracketColor, Offset(cropScreenRight - bracketLen, cropScreenBottom), Offset(cropScreenRight, cropScreenBottom), bracketThickness)
@@ -387,7 +463,7 @@ fun CropImageView(
         // Bottom Action buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedButton(
                 onClick = {
@@ -396,13 +472,39 @@ fun CropImageView(
                     normRight = 1f
                     normBottom = 1f
                     selectedPresetIndex = 0
+                    isAutoDetectedActive = false
                 },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(0.9f),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Fit Full")
+                Text("Fit Full", fontSize = 12.sp)
+            }
+
+            // Perspective Homography Flatten & Warp Button
+            FilledTonalButton(
+                onClick = {
+                    val quad = detectedResult?.quad ?: CardQuad(
+                        android.graphics.PointF(normLeft * bitmap.width, normTop * bitmap.height),
+                        android.graphics.PointF(normRight * bitmap.width, normTop * bitmap.height),
+                        android.graphics.PointF(normRight * bitmap.width, normBottom * bitmap.height),
+                        android.graphics.PointF(normLeft * bitmap.width, normBottom * bitmap.height)
+                    )
+                    val warped = CardEdgeDetector.cropAndWarpCard(bitmap, quad)
+                    Toast.makeText(context, "Perspective unskewed & cropped!", Toast.LENGTH_SHORT).show()
+                    onCropConfirmed(warped)
+                },
+                modifier = Modifier.weight(1.2f),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Icon(Icons.Default.CropFree, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Straighten", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
 
             Button(
@@ -411,17 +513,16 @@ fun CropImageView(
                     val topPx = (normTop * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
                     val widthPx = ((normRight - normLeft) * bitmap.width).toInt().coerceIn(1, bitmap.width - leftPx)
                     val heightPx = ((normBottom - normTop) * bitmap.height).toInt().coerceIn(1, bitmap.height - topPx)
-
                     val cropped = Bitmap.createBitmap(bitmap, leftPx, topPx, widthPx, heightPx)
                     onCropConfirmed(cropped)
                 },
-                modifier = Modifier.weight(1.5f),
+                modifier = Modifier.weight(1.3f),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Icon(Icons.Default.Check, contentDescription = null)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Done Cropping", fontWeight = FontWeight.Bold)
+                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Done", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

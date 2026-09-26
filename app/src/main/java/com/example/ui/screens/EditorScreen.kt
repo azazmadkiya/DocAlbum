@@ -2,6 +2,8 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import com.example.utils.CardEdgeDetector
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -98,6 +100,31 @@ fun EditorScreen(
     var pendingImageUri by remember { mutableStateOf<Uri?>(null) }
     var editingSide by remember { mutableStateOf<String?>(null) } // "FRONT" or "BACK"
     var startInCropMode by remember { mutableStateOf(false) }
+
+    fun autoDetectAndCropSide(uri: Uri?, side: String) {
+        if (uri == null) return
+        try {
+            val stream = context.contentResolver.openInputStream(uri)
+            val bmp = BitmapFactory.decodeStream(stream)
+            if (bmp != null) {
+                val cropped = CardEdgeDetector.autoCropCard(bmp)
+                val file = File(context.cacheDir, "autocrop_${side}_${System.currentTimeMillis()}.jpg")
+                val out = java.io.FileOutputStream(file)
+                cropped.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                out.flush()
+                out.close()
+                val newUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                if (side == "FRONT") {
+                    viewModel.setFrontUri(newUri)
+                } else {
+                    viewModel.setBackUri(newUri)
+                }
+                Toast.makeText(context, "Aadhaar Card auto-detected & cropped to document boundaries!", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Auto-crop error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     fun createTempUri(): Uri {
         val file = File(context.cacheDir, "doc_capture_${System.currentTimeMillis()}.jpg")
@@ -376,6 +403,7 @@ fun EditorScreen(
                                 startInCropMode = true
                             }
                         },
+                        onAutoDetectCrop = { autoDetectAndCropSide(frontUri, "FRONT") },
                         onClear = { viewModel.setFrontUri(null) },
                         onNext = { selectedTab = 1 }
                     )
@@ -399,6 +427,7 @@ fun EditorScreen(
                                 startInCropMode = true
                             }
                         },
+                        onAutoDetectCrop = { autoDetectAndCropSide(backUri, "BACK") },
                         onClear = { viewModel.setBackUri(null) },
                         onNext = { selectedTab = 2 }
                     )
@@ -480,6 +509,7 @@ fun SideCaptureAndCropSection(
     onPickGallery: () -> Unit,
     onCaptureCamera: () -> Unit,
     onEditCrop: () -> Unit,
+    onAutoDetectCrop: () -> Unit,
     onClear: () -> Unit,
     onNext: () -> Unit
 ) {
@@ -639,8 +669,22 @@ fun SideCaptureAndCropSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilledTonalButton(
+                        onClick = onAutoDetectCrop,
+                        modifier = Modifier.weight(1.2f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    ) {
+                        Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Auto-Crop", fontWeight = FontWeight.Bold)
+                    }
+
+                    FilledTonalButton(
                         onClick = onEditCrop,
-                        modifier = Modifier.weight(1.3f),
+                        modifier = Modifier.weight(1.2f),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -648,8 +692,8 @@ fun SideCaptureAndCropSection(
                         )
                     ) {
                         Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Crop & Edit Image", fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Adjust", fontWeight = FontWeight.SemiBold)
                     }
 
                     OutlinedButton(
