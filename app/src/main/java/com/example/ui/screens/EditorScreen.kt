@@ -39,6 +39,7 @@ import com.example.ui.components.PasswordInputDialog
 import com.example.ui.viewmodel.DocViewModel
 import com.example.utils.A4DocumentGenerator
 import com.example.utils.PDFEncryptionManager
+import com.example.utils.PdfProcessor
 import com.example.utils.CardPrintSize
 import java.io.File
 
@@ -61,6 +62,8 @@ fun EditorScreen(
     val encryptionManager = remember { PDFEncryptionManager(context) }
     var isPasswordProtected by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
+    var pendingPdfUri by remember { mutableStateOf<Uri?>(null) }
+    var showPdfPasswordDialog by remember { mutableStateOf(false) }
     var pendingExportAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val handleExportWithCheck: (() -> Unit) -> Unit = { exportAction ->
         if (isPasswordProtected && encryptionManager.currentConfig == null) {
@@ -169,17 +172,60 @@ fun EditorScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            val extracted = com.example.utils.PdfProcessor.processPdf(context, uri)
-            if (extracted != null) {
-                if (extracted.frontUri != null) viewModel.setFrontUri(extracted.frontUri)
-                if (extracted.backUri != null) viewModel.setBackUri(extracted.backUri)
-                if (extracted.title.isNotBlank()) viewModel.setDocTitle(extracted.title)
-                Toast.makeText(context, "Official PDF loaded & auto-cropped successfully!", Toast.LENGTH_LONG).show()
-                selectedTab = 2 // jump to A4 preview studio
-            } else {
-                Toast.makeText(context, "Failed to parse PDF document", Toast.LENGTH_SHORT).show()
+            try {
+                val extracted = com.example.utils.PdfProcessor.processPdf(context, uri)
+                if (extracted != null) {
+                    if (extracted.frontUri != null) viewModel.setFrontUri(extracted.frontUri)
+                    if (extracted.backUri != null) viewModel.setBackUri(extracted.backUri)
+                    if (extracted.title.isNotBlank()) viewModel.setDocTitle(extracted.title)
+                    Toast.makeText(context, "Official PDF loaded & auto-cropped successfully!", Toast.LENGTH_LONG).show()
+                    selectedTab = 2 // jump to A4 preview studio
+                } else {
+                    Toast.makeText(context, "Failed to parse PDF document", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: com.example.utils.PdfProcessor.PasswordRequiredException) {
+                pendingPdfUri = uri
+                showPdfPasswordDialog = true
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error opening PDF: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+        if (showPdfPasswordDialog) {
+        PasswordInputDialog(
+            title = "Protected PDF Password",
+            description = "This PDF (e.g., Aadhaar Card) is password protected. Enter the document password (e.g., first 4 letters of name in caps + birth year) to decrypt and import.",
+            confirmButtonText = "Decrypt & Import",
+            requireConfirmation = false,
+            onDismiss = {
+                showPdfPasswordDialog = false
+                pendingPdfUri = null
+            },
+            onSubmit = { password ->
+                try {
+                    val uri = pendingPdfUri
+                    if (uri != null) {
+                        val extracted = com.example.utils.PdfProcessor.processPdf(context, uri, password)
+                        if (extracted != null) {
+                            if (extracted.frontUri != null) viewModel.setFrontUri(extracted.frontUri)
+                            if (extracted.backUri != null) viewModel.setBackUri(extracted.backUri)
+                            if (extracted.title.isNotBlank()) viewModel.setDocTitle(extracted.title)
+                            Toast.makeText(context, "Encrypted PDF decrypted & loaded successfully!", Toast.LENGTH_LONG).show()
+                            selectedTab = 2
+                            showPdfPasswordDialog = false
+                            pendingPdfUri = null
+                        } else {
+                            Toast.makeText(context, "Incorrect password or invalid PDF structure", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: com.example.utils.PdfProcessor.PasswordRequiredException) {
+                    Toast.makeText(context, "Incorrect password. Please try again.", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Decryption error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
     }
 
     if (showPasswordDialog) {

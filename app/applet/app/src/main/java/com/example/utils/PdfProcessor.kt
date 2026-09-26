@@ -10,9 +10,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 
-object PdfProcessor {
+class PasswordRequiredException : Exception("Password required to decrypt PDF")
 
-    class PasswordRequiredException : Exception("Password required to decrypt PDF")
+object PdfProcessor {
 
     data class ExtractedDoc(
         val frontUri: Uri?,
@@ -53,6 +53,7 @@ object PdfProcessor {
                 return null
             }
 
+            // Render page 1 at high resolution (300 DPI print quality scale ~ 3x)
             val page1Image = renderer.renderImageWithDPI(0, 300f)
             var frontBitmap: Bitmap = page1Image
             var backBitmap: Bitmap? = null
@@ -61,6 +62,7 @@ object PdfProcessor {
                 frontBitmap = page1Image
                 backBitmap = renderer.renderImageWithDPI(1, 300f)
             } else {
+                // Single page containing both front and back (e.g. Aadhaar Card PDF)
                 val width = page1Image.width
                 val height = page1Image.height
                 val halfH = height / 2
@@ -71,6 +73,7 @@ object PdfProcessor {
             document.close()
             tempFile.delete()
 
+            // Save extracted bitmaps to cache files
             val frontFile = File(context.cacheDir, "pdf_front_${System.currentTimeMillis()}.png")
             FileOutputStream(frontFile).use { out ->
                 frontBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
