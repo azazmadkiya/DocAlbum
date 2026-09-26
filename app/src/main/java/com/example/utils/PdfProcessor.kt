@@ -54,23 +54,32 @@ object PdfProcessor {
             }
 
             val page1Image = renderer.renderImageWithDPI(0, 300f)
-            var frontBitmap: Bitmap = page1Image
+            var frontBitmap: Bitmap
             var backBitmap: Bitmap? = null
 
             if (pageCount >= 2) {
                 frontBitmap = page1Image
                 backBitmap = renderer.renderImageWithDPI(1, 300f)
             } else {
+                // Single page e-Aadhaar PDF:
+                // Top ~40% is instruction text. Bottom ~55% is the actual Aadhaar card.
                 val width = page1Image.width
                 val height = page1Image.height
-                val halfH = height / 2
-                frontBitmap = Bitmap.createBitmap(page1Image, 0, 0, width, halfH)
-                backBitmap = Bitmap.createBitmap(page1Image, 0, halfH, width, height - halfH)
+                val cardTop = (height * 0.40f).toInt().coerceIn(0, height - 100)
+                val cardBottom = (height * 0.98f).toInt().coerceIn(cardTop + 100, height)
+                val cardHeight = cardBottom - cardTop
+                val halfCardH = cardHeight / 2
+
+                // Front Side = Top half of the Aadhaar card (Photo, Name, DOB, Aadhaar Number)
+                frontBitmap = Bitmap.createBitmap(page1Image, 0, cardTop, width, halfCardH)
+                // Back Side = Bottom half of the Aadhaar card (Address, QR Code)
+                backBitmap = Bitmap.createBitmap(page1Image, 0, cardTop + halfCardH, width, cardBottom - (cardTop + halfCardH))
             }
 
             document.close()
             tempFile.delete()
 
+            // Save extracted bitmaps to cache files
             val frontFile = File(context.cacheDir, "pdf_front_${System.currentTimeMillis()}.png")
             FileOutputStream(frontFile).use { out ->
                 frontBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)

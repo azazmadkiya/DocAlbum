@@ -53,6 +53,12 @@ class DocViewModel(application: Application) : AndroidViewModel(application) {
         _backUri.value = uri
     }
 
+    fun swapFrontAndBack() {
+        val temp = _frontUri.value
+        _frontUri.value = _backUri.value
+        _backUri.value = temp
+    }
+
     fun setLayoutStyle(style: String) {
         _layoutStyle.value = style
     }

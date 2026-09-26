@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.example.utils.CardEdgeDetector
+import com.example.utils.CardSideClassifier
+import com.example.utils.DocumentSide
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -107,19 +109,33 @@ fun EditorScreen(
             val stream = context.contentResolver.openInputStream(uri)
             val bmp = BitmapFactory.decodeStream(stream)
             if (bmp != null) {
+                val classification = CardSideClassifier.classifyCardSide(bmp)
+                val targetSide = if (classification.side == DocumentSide.BACK) "BACK" else if (classification.side == DocumentSide.FRONT) "FRONT" else side
+
                 val cropped = CardEdgeDetector.autoCropCard(bmp)
-                val file = File(context.cacheDir, "autocrop_${side}_${System.currentTimeMillis()}.jpg")
+                val file = File(context.cacheDir, "autocrop_${targetSide}_${System.currentTimeMillis()}.jpg")
                 val out = java.io.FileOutputStream(file)
                 cropped.compress(Bitmap.CompressFormat.JPEG, 95, out)
                 out.flush()
                 out.close()
                 val newUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-                if (side == "FRONT") {
-                    viewModel.setFrontUri(newUri)
+
+                if (targetSide != side) {
+                    if (targetSide == "FRONT") {
+                        viewModel.setFrontUri(newUri)
+                        Toast.makeText(context, "Smart Classifier: Classified as Front Side! Routed to Front slot.", Toast.LENGTH_LONG).show()
+                    } else {
+                        viewModel.setBackUri(newUri)
+                        Toast.makeText(context, "Smart Classifier: Classified as Back Side! Routed to Back slot.", Toast.LENGTH_LONG).show()
+                    }
                 } else {
-                    viewModel.setBackUri(newUri)
+                    if (side == "FRONT") {
+                        viewModel.setFrontUri(newUri)
+                    } else {
+                        viewModel.setBackUri(newUri)
+                    }
+                    Toast.makeText(context, "Aadhaar Card auto-detected & cropped (${classification.reason})!", Toast.LENGTH_SHORT).show()
                 }
-                Toast.makeText(context, "Aadhaar Card auto-detected & cropped to document boundaries!", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             Toast.makeText(context, "Auto-crop error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -311,6 +327,12 @@ fun EditorScreen(
                 },
                 actions = {
                     IconButton(onClick = {
+                        viewModel.swapFrontAndBack()
+                        Toast.makeText(context, "Front & Back images swapped!", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.SwapHoriz, contentDescription = "Swap Front & Back")
+                    }
+                    IconButton(onClick = {
                         viewModel.saveDocument {
                             Toast.makeText(context, "Saved to history successfully!", Toast.LENGTH_SHORT).show()
                             onBack()
@@ -437,6 +459,10 @@ fun EditorScreen(
                         title = title,
                         frontUri = frontUri,
                         backUri = backUri,
+                        onSwapSides = {
+                            viewModel.swapFrontAndBack()
+                            Toast.makeText(context, "Front & Back sides swapped successfully!", Toast.LENGTH_SHORT).show()
+                        },
                         layoutStyle = layoutStyle,
                         filterType = filterType,
                         cardPrintSize = cardPrintSize,
@@ -730,6 +756,7 @@ fun A4StudioSection(
     title: String,
     frontUri: Uri?,
     backUri: Uri?,
+    onSwapSides: () -> Unit,
     layoutStyle: String,
     filterType: String,
     cardPrintSize: CardPrintSize,
@@ -757,6 +784,18 @@ fun A4StudioSection(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Manual Swap Button
+            OutlinedButton(
+                onClick = onSwapSides,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Force Swap Front & Back Images")
+            }
             // Studio Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
